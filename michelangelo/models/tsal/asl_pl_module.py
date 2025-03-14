@@ -9,6 +9,7 @@ from torch.optim import lr_scheduler
 import pytorch_lightning as pl
 from typing import Union
 from functools import partial
+import numpy
 
 from michelangelo.utils import instantiate_from_config
 
@@ -22,15 +23,30 @@ from .tsal_base import (
 
 
 class AlignedShapeAsLatentPLModule(pl.LightningModule):
+    """
+    This class extends the pl.LightningModule to handle the training, validation, and inference of the AlignedShapeAsLatentModule.
+    It is designed to be used in the first stage of the ASL Diffuser model.
+    """
 
     def __init__(self, *,
-                 shape_module_cfg,
-                 aligned_module_cfg,
-                 loss_cfg,
-                 optimizer_cfg: Optional[DictConfig] = None,
-                 ckpt_path: Optional[str] = None,
-                 ignore_keys: Union[Tuple[str], List[str]] = ()):
+                shape_module_cfg,
+                aligned_module_cfg,
+                loss_cfg,
+                optimizer_cfg: Optional[DictConfig] = None,
+                ckpt_path: Optional[str] = None,
+                ignore_keys: Union[Tuple[str], List[str]] = ()):
+        """
+        Initializes the AlignedShapeAsLatentPLModule with the shape module configuration, aligned module configuration, 
+        loss configuration, optimizer configuration, checkpoint path, and ignore keys.
 
+        Args:
+            shape_module_cfg: The configuration for the shape module.
+            aligned_module_cfg: The configuration for the aligned module.
+            loss_cfg: The configuration for the loss function.
+            optimizer_cfg (DictConfig, optional): The configuration for the optimizer. Defaults to None.
+            ckpt_path (str, optional): The path to the checkpoint. Defaults to None.
+            ignore_keys (Union[Tuple[str], List[str]], optional): The keys to ignore when loading the checkpoint. Defaults to ().
+        """
         super().__init__()
 
         shape_model: ShapeAsLatentModule = instantiate_from_config(
@@ -50,14 +66,23 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         self.save_hyperparameters()
 
     def set_shape_model_only(self):
+        """
+        Sets the shape model to None, effectively disabling it.
+        """
         self.model.set_shape_model_only()
 
     @property
     def latent_shape(self):
+        """
+        Returns the latent shape of the shape model.
+        """
         return self.model.shape_model.latent_shape
 
     @property
     def zero_rank(self):
+        """
+        Returns a flag indicating whether the current rank is zero.
+        """
         if self._trainer:
             zero_rank = self.trainer.local_rank == 0
         else:
@@ -66,7 +91,15 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         return zero_rank
 
     def init_from_ckpt(self, path, ignore_keys=()):
-        state_dict = torch.load(path, map_location="cpu")["state_dict"]
+        """
+        Initializes the model from a checkpoint.
+
+        Args:
+            path (str): The path to the checkpoint.
+            ignore_keys (Union[Tuple[str], List[str]], optional): The keys to ignore when loading the checkpoint. Defaults to ().
+        """
+        with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+            state_dict = torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
 
         keys = list(state_dict.keys())
         for k in keys:
@@ -82,6 +115,12 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
             print(f"Unexpected Keys: {unexpected}")
 
     def configure_optimizers(self) -> Tuple[List, List]:
+        """
+        Configures the optimizers and schedulers for training.
+
+        Returns:
+            Tuple[List, List]: A tuple containing a list of optimizers and a list of schedulers.
+        """
         lr = self.learning_rate
 
         trainable_parameters = list(self.model.parameters())
@@ -111,17 +150,17 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
                 image: torch.FloatTensor,
                 text: torch.FloatTensor,
                 volume_queries: torch.FloatTensor):
-
         """
+        Forwards the input through the model.
 
         Args:
-            surface (torch.FloatTensor):
-            image (torch.FloatTensor):
-            text (torch.FloatTensor):
-            volume_queries (torch.FloatTensor):
+            surface (torch.FloatTensor): The surface input tensor.
+            image (torch.FloatTensor): The image input tensor.
+            text (torch.FloatTensor): The text input tensor.
+            volume_queries (torch.FloatTensor): The volume queries input tensor.
 
         Returns:
-
+            Tuple[Dict, torch.FloatTensor, Dict]: A tuple containing a dictionary of embed outputs, the logits, and a dictionary of posteriors.
         """
 
         embed_outputs, shape_z = self.model(surface, image, text)
@@ -133,7 +172,16 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         return embed_outputs, logits, posterior
 
     def encode(self, surface: torch.FloatTensor, sample_posterior=True):
+        """
+        Encodes the surface input into a latent space using the shape model.
 
+        Args:
+            surface (torch.FloatTensor): The surface input tensor.
+            sample_posterior (bool, optional): Whether to sample the posterior. Defaults to True.
+
+        Returns:
+            torch.FloatTensor: The encoded latent shape.
+        """
         pc = surface[..., 0:3]
         feats = surface[..., 3:6]
 
@@ -148,6 +196,18 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
                bounds: Union[Tuple[float], List[float], float] = 1.1,
                octree_depth: int = 7,
                num_chunks: int = 10000) -> List[Latent2MeshOutput]:
+        """
+        Decodes the latent shape into a mesh.
+
+        Args:
+            z_q: The latent shape.
+            bounds: The bounds of the mesh. Defaults to 1.1.
+            octree_depth: The depth of the octree. Defaults to 7.
+            num_chunks: The number of chunks to divide the dense grid into for processing. Defaults to 10000.
+
+        Returns:
+            List[Latent2MeshOutput]: The list of mesh outputs.
+        """
 
         latents = self.model.shape_model.decode(z_q)  # latents: [bs, num_latents, dim]
         outputs = self.latent2mesh(latents, bounds=bounds, octree_depth=octree_depth, num_chunks=num_chunks)
@@ -157,6 +217,7 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
     def training_step(self, batch: Dict[str, torch.FloatTensor],
                       batch_idx: int, optimizer_idx: int = 0) -> torch.FloatTensor:
         """
+        Handles a training step.
 
         Args:
             batch (dict): the batch sample, and it contains:
@@ -164,14 +225,11 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
                 - image (torch.FloatTensor): [bs, 3, 224, 224]
                 - text (torch.FloatTensor): [bs, num_templates, 77]
                 - geo_points (torch.FloatTensor): [bs, n_pts, (3 + 1)]
-
-            batch_idx (int):
-
-            optimizer_idx (int):
+            batch_idx (int): The index of the batch.
+            optimizer_idx (int, optional): The index of the optimizer. Defaults to 0.
 
         Returns:
-            loss (torch.FloatTensor):
-
+            torch.FloatTensor: The loss.
         """
 
         surface = batch["surface"]
@@ -197,6 +255,16 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         return aeloss
 
     def validation_step(self, batch: Dict[str, torch.FloatTensor], batch_idx: int) -> torch.FloatTensor:
+        """
+        Handles a validation step.
+
+        Args:
+            batch (dict): The batch sample.
+            batch_idx (int): The index of the batch.
+
+        Returns:
+            torch.FloatTensor: The loss.
+        """
 
         surface = batch["surface"]
         image = batch["image"]
@@ -227,21 +295,20 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
                          bounds: Union[Tuple[float], List[float]] = (-1.25, -1.25, -1.25, 1.25, 1.25, 1.25),
                          octree_depth: int = 7,
                          num_chunks: int = 10000) -> List[AlignedMeshOutput]:
-
         """
+        Visualizes the alignment of the model.
 
         Args:
-            surface:
-            image:
-            text:
-            description:
-            bounds:
-            octree_depth:
-            num_chunks:
+            surface: The surface input tensor.
+            image: The image input tensor.
+            text: The text input tensor.
+            description: The description of the alignment. Defaults to None.
+            bounds: The bounds of the mesh. Defaults to (-1.25, -1.25, -1.25, 1.25, 1.25, 1.25).
+            octree_depth: The depth of the octree. Defaults to 7.
+            num_chunks: The number of chunks to divide the dense grid into for processing. Defaults to 10000.
 
         Returns:
-            mesh_outputs (List[AlignedMeshOutput]): the mesh outputs list.
-
+            List[AlignedMeshOutput]: The list of aligned mesh outputs.
         """
 
         outputs = []
@@ -308,18 +375,17 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
                     bounds: Union[Tuple[float], List[float], float] = 1.1,
                     octree_depth: int = 7,
                     num_chunks: int = 10000) -> List[Latent2MeshOutput]:
-
         """
+        Converts the latent shape into a mesh.
 
         Args:
             latents: [bs, num_latents, dim]
-            bounds:
-            octree_depth:
-            num_chunks:
+            bounds: The bounds of the mesh. Defaults to 1.1.
+            octree_depth: The depth of the octree. Defaults to 7.
+            num_chunks: The number of chunks to divide the dense grid into for processing. Defaults to 10000.
 
         Returns:
-            mesh_outputs (List[MeshOutput]): the mesh outputs list.
-
+            List[Latent2MeshOutput]: The list of mesh outputs.
         """
 
         outputs = []
@@ -351,4 +417,3 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
             outputs.append(out)
 
         return outputs
-

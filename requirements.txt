@@ -119,7 +119,7 @@ networkx==3.0
 ninja==1.11.1
 notebook==6.5.2
 notebook-shim==0.2.2
-numpy==1.23.1
+numpy>=1.21.6,<2.0
 oauthlib==3.2.2
 objaverse==0.0.7
 omegaconf==2.3.0
@@ -234,13 +234,13 @@ yacs==0.1.8
 yarl==1.8.2
 zipp==3.14.0
 # torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
-https://download.pytorch.org/whl/cu116/torch-1.13.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=db457a822d736013b6ffe509053001bc918bdd78fe68967b605f53984a9afac5
-https://download.pytorch.org/whl/cu116/torchvision-0.14.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=a9fc38040e133d1779f131b4497caef830e9e699faf89cd323cd58794ffb305b
-https://download.pytorch.org/whl/cu116/torchaudio-0.13.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=5bc0e29cb78f7c452eeb4f27029c40049770d51553bf840b4ca2edd63da289ee
-# torch-cluster
-https://data.pyg.org/whl/torch-1.13.0%2Bcu116/torch_cluster-1.6.1%2Bpt113cu116-cp39-cp39-linux_x86_64.whl
-# torch-scatter
-https://data.pyg.org/whl/torch-1.13.0%2Bcu116/torch_scatter-2.1.1%2Bpt113cu116-cp39-cp39-linux_x86_64.whl
+# https://download.pytorch.org/whl/cu116/torch-1.13.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=db457a822d736013b6ffe509053001bc918bdd78fe68967b605f53984a9afac5
+# https://download.pytorch.org/whl/cu116/torchvision-0.14.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=a9fc38040e133d1779f131b4497caef830e9e699faf89cd323cd58794ffb305b
+# https://download.pytorch.org/whl/cu116/torchaudio-0.13.1%2Bcu116-cp39-cp39-linux_x86_64.whl#sha256=5bc0e29cb78f7c452eeb4f27029c40049770d51553bf840b4ca2edd63da289ee
+# # torch-cluster
+# https://data.pyg.org/whl/torch-1.13.0%2Bcu116/torch_cluster-1.6.1%2Bpt113cu116-cp39-cp39-linux_x86_64.whl
+# # torch-scatter
+# https://data.pyg.org/whl/torch-1.13.0%2Bcu116/torch_scatter-2.1.1%2Bpt113cu116-cp39-cp39-linux_x86_64.whl
 torchmetrics==0.11.1
 pytorch_lightning~=1.9.3
 git+https://github.com/pyvista/fast-simplification.git

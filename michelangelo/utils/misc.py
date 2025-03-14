@@ -28,32 +28,87 @@ def get_config_from_file(config_file: str) -> Union[DictConfig, ListConfig]:
 
 
 def get_obj_from_str(string, reload=False):
+    """
+    Dynamically imports and returns an object from a given string representation.
+
+    This function takes a string representation of a module and class, and returns the class object.
+    It also provides an option to reload the module before importing the class.
+
+    Args:
+        string (str): A string representation of the module and class, separated by a dot.
+        reload (bool, optional): If True, the module will be reloaded before importing the class. Defaults to False.
+
+    Returns:
+        object: The class object dynamically imported from the given string representation.
+    """
+    # Split the input string into module and class names
     module, cls = string.rsplit(".", 1)
+    # If reload is True, import the module and reload it
     if reload:
         module_imp = importlib.import_module(module)
         importlib.reload(module_imp)
+    # Import the module and return the class object
     return getattr(importlib.import_module(module, package=None), cls)
 
 
 def get_obj_from_config(config):
+    """
+    This function takes a configuration dictionary and returns an instance of the class specified in the configuration.
+
+    Args:
+        config (dict): A dictionary containing the configuration for the object to be instantiated.
+
+    Raises:
+        KeyError: If the configuration does not contain the 'target' key, which is required to specify the class to instantiate.
+
+    Returns:
+        instance: An instance of the class specified in the configuration.
+    """
+    # Check if the 'target' key is present in the configuration, which is required to specify the class to instantiate.
     if "target" not in config:
         raise KeyError("Expected key `target` to instantiate.")
 
-    return get_obj_from_str(config["target"])
+    # Use the 'target' key to dynamically import and get the class from the configuration.
+    cls = get_obj_from_str(config["target"])
+
+    # Return the instantiated object.
+    return cls
 
 
 def instantiate_from_config(config, **kwargs):
+    """
+    Instantiates an object from a given configuration.
+
+    This function takes a configuration dictionary and optional keyword arguments, 
+    and returns an instance of the class specified in the configuration.
+
+    Args:
+        config (dict): A dictionary containing the configuration for the object to be instantiated.
+        **kwargs: Optional keyword arguments to be passed to the class constructor.
+
+    Raises:
+        KeyError: If the configuration does not contain the 'target' key, which is required to specify the class to instantiate.
+
+    Returns:
+        instance: An instance of the class specified in the configuration.
+    """
+    # Check if the 'target' key is present in the configuration, which is required to specify the class to instantiate.
     if "target" not in config:
         raise KeyError("Expected key `target` to instantiate.")
 
+    # Use the 'target' key to dynamically import and get the class from the configuration.
     cls = get_obj_from_str(config["target"])
 
+    # Retrieve the 'params' from the configuration, defaulting to an empty dictionary if not present.
     params = config.get("params", dict())
-    # params.update(kwargs)
-    # instance = cls(**params)
+
+    # Update the keyword arguments with the 'params' from the configuration.
     kwargs.update(params)
+
+    # Instantiate the class using the updated keyword arguments.
     instance = cls(**kwargs)
 
+    # Return the instantiated object.
     return instance
 
 

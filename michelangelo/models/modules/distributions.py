@@ -23,28 +23,63 @@ class DiracDistribution(AbstractDistribution):
 
 
 class DiagonalGaussianDistribution(object):
+    """
+    This class represents a diagonal Gaussian distribution, which is a type of continuous probability distribution.
+    It is parameterized by a mean and a log variance.
+    """
     def __init__(self, parameters: Union[torch.Tensor, List[torch.Tensor]], deterministic=False, feat_dim=1):
+        """
+        Initializes the diagonal Gaussian distribution.
+
+        Args:
+            parameters (Union[torch.Tensor, List[torch.Tensor]]): The parameters of the distribution, which can be a tensor or a list of tensors.
+            deterministic (bool): A flag indicating whether the distribution is deterministic.
+            feat_dim (int): The feature dimension of the distribution.
+        """
+        # Store the feature dimension and parameters
         self.feat_dim = feat_dim
         self.parameters = parameters
 
+        # If the parameters are a list, store the mean and log variance
         if isinstance(parameters, list):
             self.mean = parameters[0]
             self.logvar = parameters[1]
+        # If the parameters are not a list, split them into mean and log variance
         else:
             self.mean, self.logvar = torch.chunk(parameters, 2, dim=feat_dim)
 
+        # Clamp the log variance to a range
         self.logvar = torch.clamp(self.logvar, -30.0, 20.0)
+        # Store the deterministic flag
         self.deterministic = deterministic
+        # Calculate the standard deviation and variance
         self.std = torch.exp(0.5 * self.logvar)
         self.var = torch.exp(self.logvar)
+        # If the distribution is deterministic, set the variance and standard deviation to zero
         if self.deterministic:
             self.var = self.std = torch.zeros_like(self.mean)
 
     def sample(self):
+        """
+        Samples from the distribution.
+
+        Returns:
+            torch.Tensor: The sampled value.
+        """
         x = self.mean + self.std * torch.randn_like(self.mean)
         return x
 
     def kl(self, other=None, dims=(1, 2, 3)):
+        """
+        Computes the Kullback-Leibler (KL) divergence between this distribution and another distribution.
+
+        Args:
+            other (DiagonalGaussianDistribution): The other distribution.
+            dims (Tuple[int]): The dimensions over which to compute the KL divergence.
+
+        Returns:
+            torch.Tensor: The KL divergence.
+        """
         if self.deterministic:
             return torch.Tensor([0.])
         else:
@@ -59,6 +94,16 @@ class DiagonalGaussianDistribution(object):
                     dim=dims)
 
     def nll(self, sample, dims=(1, 2, 3)):
+        """
+        Computes the negative log likelihood (NLL) of the distribution for a given sample.
+
+        Args:
+            sample (torch.Tensor): The sample for which to compute the NLL.
+            dims (Tuple[int]): The dimensions over which to compute the NLL.
+
+        Returns:
+            torch.Tensor: The NLL.
+        """
         if self.deterministic:
             return torch.Tensor([0.])
         logtwopi = np.log(2.0 * np.pi)
@@ -67,6 +112,12 @@ class DiagonalGaussianDistribution(object):
             dim=dims)
 
     def mode(self):
+        """
+        Computes the mode of the distribution.
+
+        Returns:
+            torch.Tensor: The mode.
+        """
         return self.mean
 
 
