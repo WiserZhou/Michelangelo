@@ -258,107 +258,124 @@ class ClipASLDiffuser(pl.LightningModule):
     @torch.no_grad()
     def on_train_batch_start(self, batch, batch_idx):
         """
-        Performs operations at the start of each training batch.
+        This method is called at the start of each training batch. It performs specific operations
+        only for the very first batch of the first epoch, when no checkpoint is loaded. The purpose
+        is to dynamically adjust the scaling factor for the latent space based on the standard deviation
+        of the initial batch's encodings.
 
         Args:
-            batch: The current batch.
-            batch_idx: The index of the current batch.
+            batch: The current batch being processed.
+            batch_idx: The index of the current batch within the epoch.
         """
-        # only for very first batch
+        # Check if it's the first batch of the first epoch and no checkpoint is loaded
         if self.scale_by_std and self.current_epoch == 0 and self.global_step == 0 \
                 and batch_idx == 0 and self.ckpt_path is None:
-            # set rescale weight to 1./std of encodings
+            # Indicate that standard deviation rescaling is being used
             print("### USING STD-RESCALING ###")
 
+            # Encode the first batch to get the latent space representation
             z_q = self.encode_first_stage(batch[self.first_stage_key])
+            # Detach the tensor to prevent gradients from flowing back
             z = z_q.detach()
 
+            # Remove any existing scaling factor buffer
             del self.z_scale_factor
+            # Calculate the scaling factor as the reciprocal of the standard deviation of the flattened latent space
             self.register_buffer("z_scale_factor", 1. / z.flatten().std())
+            # Log the new scaling factor value
             print(f"setting self.z_scale_factor to {self.z_scale_factor}")
 
+            # Indicate that standard deviation rescaling has been applied
             print("### USING STD-RESCALING ###")
 
     def compute_loss(self, model_outputs, split):
         """
-        Computes the loss based on the model outputs and the split (train or val).
+        This method calculates the loss based on the outputs from the model and the current batch split (train or validation).
 
         Args:
-            model_outputs (dict): The outputs from the model.
-                - x_0:
-                - noise:
-                - noise_prior:
-                - noise_pred:
-                - noise_pred_prior:
-            model_outputs: 
-
-            split (str): The split (train or val) for the current batch.
+            model_outputs (dict): A dictionary containing the outputs from the model. The keys in this dictionary include:
+                - x_0: The original input data.
+                - noise: The noise added to the input data.
+                - noise_prior: The prior noise distribution.
+                - noise_pred: The predicted noise.
+                - noise_pred_prior: The prior distribution of the predicted noise.
+            split (str): A string indicating the current batch split, either 'train' or 'val'.
 
         Returns:
-            The total loss and a dictionary of loss terms.
+            A tuple containing the total loss and a dictionary of loss terms.
         """
+        # Extract the predicted noise from the model outputs
         pred = model_outputs["pred"]
 
+        # Determine the target for the loss calculation based on the prediction type
         if self.noise_scheduler.prediction_type == "epsilon":
+            # If the prediction type is 'epsilon', the target is the actual noise
             target = model_outputs["noise"]
         elif self.noise_scheduler.prediction_type == "sample":
+            # If the prediction type is 'sample', the target is the original input data
             target = model_outputs["x_0"]
         else:
+            # If the prediction type is neither 'epsilon' nor 'sample', raise an exception
             raise NotImplementedError(f"Prediction Type: {self.noise_scheduler.prediction_type} not yet supported.")
 
+        # Calculate the loss based on the specified loss type
         if self.loss_cfg.loss_type == "l1":
+            # If the loss type is 'l1', use the mean absolute error
             simple = F.l1_loss(pred, target, reduction="mean")
         elif self.loss_cfg.loss_type in ["mse", "l2"]:
+            # If the loss type is 'mse' or 'l2', use the mean squared error
             simple = F.mse_loss(pred, target, reduction="mean")
         else:
+            # If the loss type is neither 'l1', 'mse', nor 'l2', raise an exception
             raise NotImplementedError(f"Loss Type: {self.loss_cfg.loss_type} not yet supported.")
 
+        # The total loss is the simple loss calculated above
         total_loss = simple
 
+        # Prepare a dictionary to store the loss terms
         loss_dict = {
+            # Store the total loss under the key '{split}/total_loss'
             f"{split}/total_loss": total_loss.clone().detach(),
+            # Store the simple loss under the key '{split}/simple'
             f"{split}/simple": simple.detach(),
         }
 
+        # Return the total loss and the dictionary of loss terms
         return total_loss, loss_dict
 
     def forward(self, batch):
-        """
-        Performs a forward pass through the model.
-
-        Args:
-            batch: The current batch.
-
-        Returns:
-            The outputs from the diffusion model.
-        """
+        # Encode the first stage input (e.g., surface) into latent space
         latents = self.encode_first_stage(batch[self.first_stage_key])
+        # Encode the conditional stage input (e.g., image or text) into a conditional representation
         conditions = self.cond_stage_model.encode(batch[self.cond_stage_key])
 
-        # Sample noise that we"ll add to the latents
-        # [batch_size, n_token, latent_dim]
+        # Sample random noise to be added to the latents, with the same shape as the latents
         noise = torch.randn_like(latents)
+        # Get the batch size from the shape of the latents
         bs = latents.shape[0]
-        # Sample a random timestep for each motion
+        # Sample a random timestep for each batch element, within the range of training timesteps
         timesteps = torch.randint(
             0,
             self.noise_scheduler.config.num_train_timesteps,
             (bs,),
             device=latents.device,
         )
+        # Ensure timesteps are of type long
         timesteps = timesteps.long()
-        # Add noise to the latents according to the noise magnitude at each timestep
+        # Add noise to the latents based on the noise magnitude at each timestep
         noisy_z = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-        # diffusion model forward
+        # Perform a forward pass through the diffusion model, predicting the noise
         noise_pred = self.model(noisy_z, timesteps, conditions)
 
+        # Prepare a dictionary to store the outputs from the diffusion model
         diffusion_outputs = {
-            "x_0": noisy_z,
-            "noise": noise,
-            "pred": noise_pred
+            "x_0": noisy_z,  # The noisy latents
+            "noise": noise,  # The original noise added to the latents
+            "pred": noise_pred  # The predicted noise
         }
 
+        # Return the outputs from the diffusion model
         return diffusion_outputs
 
     def training_step(self, batch: Dict[str, Union[torch.FloatTensor, List[str]]],
@@ -418,43 +435,50 @@ class ClipASLDiffuser(pl.LightningModule):
             eta: float = 0.0,
             return_intermediates: bool = False, **kwargs):
         """
-        Samples from the model.
+        This method samples from the model. It generates samples based on the input batch and specified parameters.
 
         Args:
-            batch: The batch to sample from.
-            sample_times: The number of times to sample.
-            steps: The number of steps for the sampling process.
-            guidance_scale: The guidance scale for the sampling process.
-            eta: The eta value for the sampling process.
-            return_intermediates: Whether to return intermediate samples.
+            batch (dict): The batch to sample from. It contains the input data for the model.
+            sample_times (int, optional): The number of times to sample. Defaults to 1.
+            steps (Optional[int], optional): The number of steps for the sampling process. Defaults to None.
+            guidance_scale (Optional[float], optional): The guidance scale for the sampling process. Defaults to None.
+            eta (float, optional): The eta value for the sampling process. Defaults to 0.0.
+            return_intermediates (bool, optional): Whether to return intermediate samples. Defaults to False.
             **kwargs: Additional keyword arguments for the sampling process.
 
         Returns:
             A list of sampled outputs.
         """
+        # If the number of steps is not provided, use the default number of inference steps from the scheduler configuration.
         if steps is None:
             steps = self.scheduler_cfg.num_inference_steps
 
+        # If the guidance scale is not provided, use the default guidance scale from the scheduler configuration.
         if guidance_scale is None:
             guidance_scale = self.scheduler_cfg.guidance_scale
+        # Determine if classifier-free guidance is needed based on the guidance scale.
         do_classifier_free_guidance = guidance_scale > 0
 
-        # conditional encode
+        # Extract the conditional input from the batch.
         xc = batch[self.cond_stage_key]
 
-        # print(self.first_stage_model.device, self.cond_stage_model.device, self.device)
-
+        # Encode the conditional input.
         cond = self.cond_stage_model(xc)
 
+        # If classifier-free guidance is required, concatenate the unconditional embedding with the conditional encoding.
         if do_classifier_free_guidance:
             un_cond = self.cond_stage_model.unconditional_embedding(batch_size=len(xc))
             cond = torch.cat([un_cond, cond], dim=0)
 
+        # Initialize an empty list to store the outputs.
         outputs = []
+        # Initialize latents to None.
         latents = None
 
+        # If intermediate samples are not required, sample multiple times and decode the final latent.
         if not return_intermediates:
             for _ in range(sample_times):
+                # Perform the sampling process.
                 sample_loop = ddim_sample(
                     self.denoise_scheduler,
                     self.model,
@@ -467,11 +491,14 @@ class ClipASLDiffuser(pl.LightningModule):
                     eta=eta,
                     disable_prog=not self.zero_rank
                 )
+                # Iterate over the samples and timestamps from the sampling loop.
                 for sample, t in sample_loop:
+                    # Update the latents with the current sample.
                     latents = sample
+                # Decode the final latent and append it to the outputs.
                 outputs.append(self.decode_first_stage(latents, **kwargs))
         else:
-
+            # If intermediate samples are required, perform the sampling process once and decode at specified intervals.
             sample_loop = ddim_sample(
                 self.denoise_scheduler,
                 self.model,
@@ -485,12 +512,16 @@ class ClipASLDiffuser(pl.LightningModule):
                 disable_prog=not self.zero_rank
             )
 
+            # Calculate the iteration size to determine when to decode and append intermediate samples.
             iter_size = steps // sample_times
             i = 0
             for sample, t in sample_loop:
+                # Update the latents with the current sample.
                 latents = sample
+                # If the current iteration is a multiple of the iteration size or the last iteration, decode and append.
                 if i % iter_size == 0 or i == steps - 1:
                     outputs.append(self.decode_first_stage(latents, **kwargs))
                 i += 1
 
+        # Return the list of outputs.
         return outputs

@@ -18,42 +18,53 @@ from .tsal_base import (
     Point2MeshOutput
 )
 
-
+# Define a PyTorch Lightning Module for the ShapeAsLatent model
 class ShapeAsLatentPLModule(pl.LightningModule):
-
+    # Initialize the module with the provided configurations and optional parameters
     def __init__(self, *,
-                 module_cfg,
-                 loss_cfg,
-                 optimizer_cfg: Optional[DictConfig] = None,
-                 ckpt_path: Optional[str] = None,
-                 ignore_keys: Union[Tuple[str], List[str]] = ()):
+                module_cfg,
+                loss_cfg,
+                optimizer_cfg: Optional[DictConfig] = None,
+                ckpt_path: Optional[str] = None,
+                ignore_keys: Union[Tuple[str], List[str]] = ()):
 
+        # Call the parent class constructor
         super().__init__()
 
+        # Instantiate the ShapeAsLatentModule from the provided configuration
         self.sal: ShapeAsLatentModule = instantiate_from_config(module_cfg, device=None, dtype=None)
 
+        # Instantiate the loss function from the provided configuration
         self.loss = instantiate_from_config(loss_cfg)
 
+        # Store the optimizer configuration
         self.optimizer_cfg = optimizer_cfg
 
+        # If a checkpoint path is provided, initialize the model from the checkpoint
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
+        # Save the hyperparameters of the model
         self.save_hyperparameters()
 
+    # Define a property to get the latent shape of the model
     @property
     def latent_shape(self):
         return self.sal.latent_shape
 
+    # This property checks if the model is in the zero rank, which is typically the master process in a distributed training setup.
     @property
     def zero_rank(self):
+        # If the trainer is defined, check if the local rank is 0, indicating the master process.
         if self._trainer:
             zero_rank = self.trainer.local_rank == 0
+        # If the trainer is not defined, assume it's not a distributed setup and return True.
         else:
             zero_rank = True
 
         return zero_rank
 
+    # Initialize the model from a checkpoint
     def init_from_ckpt(self, path, ignore_keys=()):
         state_dict = torch.load(path, map_location="cpu")["state_dict"]
 
@@ -70,32 +81,37 @@ class ShapeAsLatentPLModule(pl.LightningModule):
             print(f"Missing Keys: {missing}")
             print(f"Unexpected Keys: {unexpected}")
 
+    # Configure the optimizers for the model
     def configure_optimizers(self) -> Tuple[List, List]:
         lr = self.learning_rate
 
-        # optimizers = [torch.optim.AdamW(self.sal.parameters(), lr=lr, betas=(0.9, 0.99), weight_decay=1e-4)]
-        # optimizers = [torch.optim.AdamW(self.sal.parameters(), lr=lr, betas=(0.9, 0.99), weight_decay=1e-3)]
-
+        # If no optimizer configuration is provided, use the default optimizer
         if self.optimizer_cfg is None:
             optimizers = [torch.optim.AdamW(self.sal.parameters(), lr=lr, betas=(0.9, 0.99), weight_decay=1e-3)]
             schedulers = []
         else:
+            # Instantiate the optimizer from the provided configuration
             optimizer = instantiate_from_config(self.optimizer_cfg.optimizer, params=self.sal.parameters())
+            # Instantiate the scheduler function from the provided configuration
             scheduler_func = instantiate_from_config(
                 self.optimizer_cfg.scheduler,
                 max_decay_steps=self.trainer.max_steps,
                 lr_max=lr
             )
+            # Create a scheduler configuration with the instantiated scheduler function
             scheduler = {
                 "scheduler": lr_scheduler.LambdaLR(optimizer, lr_lambda=scheduler_func.schedule),
                 "interval": "step",
                 "frequency": 1
             }
+            # Prepare the optimizer and scheduler for training
             optimizers = [optimizer]
             schedulers = [scheduler]
 
+        # Return the configured optimizers and schedulers for training
         return optimizers, schedulers
 
+    # Define the forward pass of the model
     def forward(self,
                 pc: torch.FloatTensor,
                 feats: torch.FloatTensor,
@@ -105,6 +121,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return posterior, logits
 
+    # Encode the surface input into a latent space using the shape model
     def encode(self, surface: torch.FloatTensor, sample_posterior=True):
 
         pc = surface[..., 0:3]
@@ -116,6 +133,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return latents
 
+    # Decode the latent shape into a mesh
     def decode(self,
                z_q,
                bounds: Union[Tuple[float], List[float], float] = 1.1,
@@ -127,6 +145,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return outputs
 
+    # Define the training step of the model
     def training_step(self, batch: Dict[str, torch.FloatTensor],
                       batch_idx: int, optimizer_idx: int = 0) -> torch.FloatTensor:
         """
@@ -161,6 +180,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return aeloss
 
+    # Define the validation step of the model
     def validation_step(self, batch: Dict[str, torch.FloatTensor], batch_idx: int) -> torch.FloatTensor:
 
         pc = batch["surface"][..., 0:3]
@@ -179,6 +199,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return aeloss
 
+    # Define the point2mesh function of the model
     def point2mesh(self,
                    pc: torch.FloatTensor,
                    feats: torch.FloatTensor,
@@ -240,6 +261,7 @@ class ShapeAsLatentPLModule(pl.LightningModule):
 
         return outputs
 
+    # Define the latent2mesh function of the model
     def latent2mesh(self,
                     latents: torch.FloatTensor,
                     bounds: Union[Tuple[float], List[float], float] = 1.1,
@@ -247,24 +269,27 @@ class ShapeAsLatentPLModule(pl.LightningModule):
                     num_chunks: int = 10000) -> List[Latent2MeshOutput]:
 
         """
+        This function decodes the given latents into a mesh representation.
 
         Args:
-            latents: [bs, num_latents, dim]
-            bounds:
-            octree_depth:
-            num_chunks:
+            latents: The latent variables to decode. It should have the shape [bs, num_latents, dim].
+            bounds: The bounds of the region to extract geometry from. If a single float is provided, it is used as the bounds for all dimensions. Defaults to 1.1.
+            octree_depth: The depth of the octree to use for generating the dense grid of points. Defaults to 7.
+            num_chunks: The number of chunks to divide the dense grid into for processing. Defaults to 10000.
 
         Returns:
-            mesh_outputs (List[MeshOutput]): the mesh outputs list.
+            mesh_outputs (List[Latent2MeshOutput]): The mesh outputs list.
 
         """
 
         outputs = []
 
+        # Define a partial function for the geometric query with the given latents
         geometric_func = partial(self.sal.query_geometry, latents=latents)
 
         # 2. decode geometry
         device = latents.device
+        # Extract the geometry from the given latents
         mesh_v_f, has_surface = extract_geometry(
             geometric_func=geometric_func,
             device=device,
@@ -281,10 +306,14 @@ class ShapeAsLatentPLModule(pl.LightningModule):
                 outputs.append(None)
                 continue
 
+            # Create a new Latent2MeshOutput instance
             out = Latent2MeshOutput()
+            # Set the mesh vertices and faces
             out.mesh_v = mesh_v
             out.mesh_f = mesh_f
 
+            # Append the output to the list of outputs
             outputs.append(out)
 
+        # Return the list of outputs
         return outputs

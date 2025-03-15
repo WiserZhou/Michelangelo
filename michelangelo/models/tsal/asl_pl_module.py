@@ -21,7 +21,6 @@ from .tsal_base import (
     AlignedMeshOutput
 )
 
-
 class AlignedShapeAsLatentPLModule(pl.LightningModule):
     """
     This class extends the pl.LightningModule to handle the training, validation, and inference of the AlignedShapeAsLatentModule.
@@ -98,20 +97,31 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
             path (str): The path to the checkpoint.
             ignore_keys (Union[Tuple[str], List[str]], optional): The keys to ignore when loading the checkpoint. Defaults to ().
         """
+        # Load the state dictionary from the checkpoint file
+        # 它的作用是确保在加载模型时，只有指定的全局对象可以被访问。
         with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
             state_dict = torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
 
+        # Get the keys of the state dictionary
         keys = list(state_dict.keys())
+        # Iterate over the keys
         for k in keys:
+            # Iterate over the ignore keys
             for ik in ignore_keys:
+                # If the key starts with an ignore key, delete the key from the state dictionary
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del state_dict[k]
 
+        # Load the state dictionary into the model, allowing for missing and unexpected keys
         missing, unexpected = self.load_state_dict(state_dict, strict=False)
+        # Print the number of missing and unexpected keys
         print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
+        # If there are missing keys, print them
         if len(missing) > 0:
             print(f"Missing Keys: {missing}")
+        # If there are unexpected keys, print them
+        if len(unexpected) > 0:
             print(f"Unexpected Keys: {unexpected}")
 
     def configure_optimizers(self) -> Tuple[List, List]:
@@ -121,28 +131,36 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         Returns:
             Tuple[List, List]: A tuple containing a list of optimizers and a list of schedulers.
         """
+        # Retrieve the learning rate from the model's configuration
         lr = self.learning_rate
 
+        # Collect all trainable parameters from the model
         trainable_parameters = list(self.model.parameters())
 
+        # If no optimizer configuration is provided, use the default AdamW optimizer
         if self.optimizer_cfg is None:
             optimizers = [torch.optim.AdamW(trainable_parameters, lr=lr, betas=(0.9, 0.99), weight_decay=1e-3)]
             schedulers = []
         else:
+            # Instantiate the optimizer from the provided configuration
             optimizer = instantiate_from_config(self.optimizer_cfg.optimizer, params=trainable_parameters)
+            # Instantiate the scheduler function from the provided configuration
             scheduler_func = instantiate_from_config(
                 self.optimizer_cfg.scheduler,
                 max_decay_steps=self.trainer.max_steps,
                 lr_max=lr
             )
+            # Create a scheduler configuration with the instantiated scheduler function
             scheduler = {
                 "scheduler": lr_scheduler.LambdaLR(optimizer, lr_lambda=scheduler_func.schedule),
                 "interval": "step",
                 "frequency": 1
             }
+            # Prepare the optimizer and scheduler for training
             optimizers = [optimizer]
             schedulers = [scheduler]
 
+        # Return the configured optimizers and schedulers for training
         return optimizers, schedulers
 
     def forward(self,
@@ -162,13 +180,19 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         Returns:
             Tuple[Dict, torch.FloatTensor, Dict]: A tuple containing a dictionary of embed outputs, the logits, and a dictionary of posteriors.
         """
-
+        # Forward pass through the model with the input tensors
         embed_outputs, shape_z = self.model(surface, image, text)
 
+        # Encode the shape embedding and calculate the posterior
         shape_zq, posterior = self.model.shape_model.encode_kl_embed(shape_z)
+
+        # Decode the latent shape
         latents = self.model.shape_model.decode(shape_zq)
+
+        # Query the geometry with the volume queries and the decoded latents
         logits = self.model.shape_model.query_geometry(volume_queries, latents)
 
+        # Return the embed outputs, logits, and posterior
         return embed_outputs, logits, posterior
 
     def encode(self, surface: torch.FloatTensor, sample_posterior=True):
@@ -192,10 +216,10 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         return shape_zq
 
     def decode(self,
-               z_q,
-               bounds: Union[Tuple[float], List[float], float] = 1.1,
-               octree_depth: int = 7,
-               num_chunks: int = 10000) -> List[Latent2MeshOutput]:
+            z_q,
+            bounds: Union[Tuple[float], List[float], float] = 1.1,
+            octree_depth: int = 7,
+            num_chunks: int = 10000) -> List[Latent2MeshOutput]:
         """
         Decodes the latent shape into a mesh.
 
@@ -215,7 +239,7 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         return outputs
 
     def training_step(self, batch: Dict[str, torch.FloatTensor],
-                      batch_idx: int, optimizer_idx: int = 0) -> torch.FloatTensor:
+                    batch_idx: int, optimizer_idx: int = 0) -> torch.FloatTensor:
         """
         Handles a training step.
 
@@ -250,7 +274,7 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
         )
 
         self.log_dict(log_dict_ae, prog_bar=True, logger=True, batch_size=shape_logits.shape[0],
-                      sync_dist=False, rank_zero_only=True)
+                    sync_dist=False, rank_zero_only=True)
 
         return aeloss
 
@@ -283,18 +307,18 @@ class AlignedShapeAsLatentPLModule(pl.LightningModule):
             split="val"
         )
         self.log_dict(log_dict_ae, prog_bar=True, logger=True, batch_size=shape_logits.shape[0],
-                      sync_dist=False, rank_zero_only=True)
+                    sync_dist=False, rank_zero_only=True)
 
         return aeloss
 
     def visual_alignment(self,
-                         surface: torch.FloatTensor,
-                         image: torch.FloatTensor,
-                         text: torch.FloatTensor,
-                         description: Optional[List[str]] = None,
-                         bounds: Union[Tuple[float], List[float]] = (-1.25, -1.25, -1.25, 1.25, 1.25, 1.25),
-                         octree_depth: int = 7,
-                         num_chunks: int = 10000) -> List[AlignedMeshOutput]:
+                        surface: torch.FloatTensor,
+                        image: torch.FloatTensor,
+                        text: torch.FloatTensor,
+                        description: Optional[List[str]] = None,
+                        bounds: Union[Tuple[float], List[float]] = (-1.25, -1.25, -1.25, 1.25, 1.25, 1.25),
+                        octree_depth: int = 7,
+                        num_chunks: int = 10000) -> List[AlignedMeshOutput]:
         """
         Visualizes the alignment of the model.
 

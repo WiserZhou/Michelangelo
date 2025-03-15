@@ -334,9 +334,9 @@ class ShapeAsLatentPerceiver(ShapeAsLatentModule):
         )
 
     def encode(self,
-               pc: torch.FloatTensor,
-               feats: Optional[torch.FloatTensor] = None,
-               sample_posterior: bool = True):
+            pc: torch.FloatTensor,
+            feats: Optional[torch.FloatTensor] = None,
+            sample_posterior: bool = True):
         """
         Encode the input point cloud and features.
 
