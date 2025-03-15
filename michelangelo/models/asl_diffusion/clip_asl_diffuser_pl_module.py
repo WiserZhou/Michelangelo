@@ -456,6 +456,7 @@ class ClipASLDiffuser(pl.LightningModule):
         # If the guidance scale is not provided, use the default guidance scale from the scheduler configuration.
         if guidance_scale is None:
             guidance_scale = self.scheduler_cfg.guidance_scale
+            
         # Determine if classifier-free guidance is needed based on the guidance scale.
         do_classifier_free_guidance = guidance_scale > 0
 
