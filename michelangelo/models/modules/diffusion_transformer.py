@@ -133,6 +133,12 @@ class DiT(nn.Module):
 
 
 class UNetDiffusionTransformer(nn.Module):
+    """
+    This class defines a UNet-like architecture for diffusion-based transformers.
+    It consists of an encoder, a middle block, and a decoder. The encoder and decoder
+    are composed of multiple ResidualAttentionBlock layers, while the middle block is a single
+    ResidualAttentionBlock layer. The decoder also includes linear layers and optional layer normalization.
+    """
     def __init__(
             self,
             *,
@@ -147,12 +153,28 @@ class UNetDiffusionTransformer(nn.Module):
             skip_ln: bool = False,
             use_checkpoint: bool = False
     ):
+        """
+        Initializes the UNetDiffusionTransformer model.
+
+        Args:
+            device (Optional[torch.device]): The device to use for the model.
+            dtype (Optional[torch.dtype]): The data type to use for the model.
+            n_ctx (int): The context size.
+            width (int): The width of the model.
+            layers (int): The number of layers in the encoder and decoder.
+            heads (int): The number of attention heads.
+            init_scale (float, optional): The initialization scale for the model. Defaults to 0.25.
+            qkv_bias (bool, optional): Whether to use bias in the query, key, and value projections. Defaults to False.
+            skip_ln (bool, optional): Whether to skip layer normalization in the decoder. Defaults to False.
+            use_checkpoint (bool, optional): Whether to use checkpointing for the model. Defaults to False.
+        """
         super().__init__()
 
         self.n_ctx = n_ctx
         self.width = width
         self.layers = layers
 
+        # Initialize the encoder with multiple ResidualAttentionBlock layers
         self.encoder = nn.ModuleList()
         for _ in range(layers):
             resblock = ResidualAttentionBlock(
@@ -167,6 +189,7 @@ class UNetDiffusionTransformer(nn.Module):
             )
             self.encoder.append(resblock)
 
+        # Initialize the middle block as a single ResidualAttentionBlock layer
         self.middle_block = ResidualAttentionBlock(
             device=device,
             dtype=dtype,
@@ -178,6 +201,7 @@ class UNetDiffusionTransformer(nn.Module):
             use_checkpoint=use_checkpoint
         )
 
+        # Initialize the decoder with multiple layers, each consisting of a ResidualAttentionBlock, a linear layer, and an optional layer normalization
         self.decoder = nn.ModuleList()
         for _ in range(layers):
             resblock = ResidualAttentionBlock(
@@ -198,7 +222,15 @@ class UNetDiffusionTransformer(nn.Module):
             self.decoder.append(nn.ModuleList([resblock, linear, layer_norm]))
 
     def forward(self, x: torch.Tensor):
+        """
+        Forward pass through the UNetDiffusionTransformer model.
 
+        Args:
+            x (torch.Tensor): The input tensor to the model.
+
+        Returns:
+            torch.Tensor: The output tensor from the model.
+        """
         enc_outputs = []
         for block in self.encoder:
             x = block(x)

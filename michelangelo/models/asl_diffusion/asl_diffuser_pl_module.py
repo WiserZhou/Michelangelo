@@ -404,12 +404,12 @@ class ASLDiffuser(pl.LightningModule):
 
     @torch.no_grad()
     def sample(self,
-               batch: Dict[str, Union[torch.FloatTensor, List[str]]],
-               sample_times: int = 1,
-               steps: Optional[int] = None,
-               guidance_scale: Optional[float] = None,
-               eta: float = 0.0,
-               return_intermediates: bool = False, **kwargs):
+            batch: Dict[str, Union[torch.FloatTensor, List[str]]],
+            sample_times: int = 1,
+            steps: Optional[int] = None,
+            guidance_scale: Optional[float] = None,
+            eta: float = 0.0,
+            return_intermediates: bool = False, **kwargs):
 
         if self.first_stage_model is None:
             self.instantiate_first_stage(self.first_stage_config)

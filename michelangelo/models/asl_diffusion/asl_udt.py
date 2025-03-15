@@ -13,26 +13,27 @@ from michelangelo.models.modules.diffusion_transformer import UNetDiffusionTrans
 class ConditionalASLUDTDenoiser(nn.Module):
 
     def __init__(self, *,
-                 device: Optional[torch.device],
-                 dtype: Optional[torch.dtype],
-                 input_channels: int,
-                 output_channels: int,
-                 n_ctx: int,
-                 width: int,
-                 layers: int,
-                 heads: int,
-                 context_dim: int,
-                 context_ln: bool = True,
-                 skip_ln: bool = False,
-                 init_scale: float = 0.25,
-                 flip_sin_to_cos: bool = False,
-                 use_checkpoint: bool = False):
+                device: Optional[torch.device],
+                dtype: Optional[torch.dtype],
+                input_channels: int,
+                output_channels: int,
+                n_ctx: int,
+                width: int,
+                layers: int,
+                heads: int,
+                context_dim: int,
+                context_ln: bool = True,
+                skip_ln: bool = False,
+                init_scale: float = 0.25,
+                flip_sin_to_cos: bool = False,
+                use_checkpoint: bool = False):
         super().__init__()
 
         self.use_checkpoint = use_checkpoint
 
         init_scale = init_scale * math.sqrt(1.0 / width)
 
+        # Initialize the UNetDiffusionTransformer
         self.backbone = UNetDiffusionTransformer(
             device=device,
             dtype=dtype,
@@ -44,26 +45,32 @@ class ConditionalASLUDTDenoiser(nn.Module):
             init_scale=init_scale,
             use_checkpoint=use_checkpoint
         )
+        # Initialize the LayerNorm for post-processing
         self.ln_post = nn.LayerNorm(width, device=device, dtype=dtype)
+        # Initialize the linear projection for input
         self.input_proj = nn.Linear(input_channels, width, device=device, dtype=dtype)
+        # Initialize the linear projection for output
         self.output_proj = nn.Linear(width, output_channels, device=device, dtype=dtype)
 
-        # timestep embedding
+        # Initialize the timestep embedding
         self.time_embed = Timesteps(width, flip_sin_to_cos=flip_sin_to_cos, downscale_freq_shift=0)
         self.time_proj = MLP(
             device=device, dtype=dtype, width=width, init_scale=init_scale
         )
 
+        # Initialize the context embedding
         self.context_embed = nn.Sequential(
             nn.LayerNorm(context_dim, device=device, dtype=dtype),
             nn.Linear(context_dim, width, device=device, dtype=dtype),
         )
 
+        # If context_ln is True, add LayerNorm to the context embedding
         if context_ln:
             self.context_embed = nn.Sequential(
                 nn.LayerNorm(context_dim, device=device, dtype=dtype),
                 nn.Linear(context_dim, width, device=device, dtype=dtype),
             )
+        # If context_ln is False, only use linear projection for the context embedding
         else:
             self.context_embed = nn.Linear(context_dim, width, device=device, dtype=dtype)
 
@@ -100,5 +107,4 @@ class ConditionalASLUDTDenoiser(nn.Module):
         sample = self.output_proj(x)
 
         return sample
-
 

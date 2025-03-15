@@ -6,6 +6,7 @@ import torch.nn as nn
 from torchvision import transforms
 from transformers import CLIPModel, CLIPTokenizer
 from collections import OrderedDict
+import clip
 
 from michelangelo.data.transforms import RandomResize
 
@@ -375,8 +376,12 @@ class FrozenCLIPImageGridEmbedder(AbstractEncoder):
     def encode(self, image):
         return self(image, zero_embedding_radio=self.zero_embedding_radio)
 
-
 class MoECLIPImageEncoder(nn.Module):
+    """
+    This class defines a MoECLIPImageEncoder model, which is a PyTorch module that encapsulates the functionality of encoding images 
+    using multiple CLIP models with different versions and projection vectors. It supports various precision modes, normalization, 
+    and clipping options.
+    """
     def __init__(
             self,
             versions,
@@ -390,6 +395,21 @@ class MoECLIPImageEncoder(nn.Module):
             transform_type="base",
             argument_p=0.2,
     ):
+        """
+        Initializes the MoECLIPImageEncoder model with the specified parameters.
+
+        Args:
+            versions (str or tuple): The version(s) of the CLIP model to use. If a single string is provided, it is converted to a tuple.
+            hidden_state_dim (int): The dimension of the hidden state in the projection layer.
+            num_projection_vector (int, optional): The number of projection vectors to use. Defaults to 8.
+            zero_embedding_radio (float, optional): The probability of zeroing out embeddings during training. Defaults to 0.1.
+            device (str, optional): The device to use for computations. Defaults to "cuda".
+            precision (str, optional): The precision mode to use. Can be "fp16", "fp32", or "bf16". Defaults to "fp16".
+            normalize (bool, optional): Whether to normalize the embeddings. Defaults to False.
+            clip_max (float, optional): The maximum value to clip embeddings to. Defaults to 0.
+            transform_type (str, optional): The type of transformation to apply to images. Can be "base" or "crop_blur_resize". Defaults to "base".
+            argument_p (float, optional): The probability of applying random transformations. Defaults to 0.2.
+        """
         super().__init__()
 
         self.device = torch.device(device)
@@ -400,6 +420,7 @@ class MoECLIPImageEncoder(nn.Module):
         self.normalize = normalize
         self.clip_max = clip_max
 
+        # Define the image transformation pipeline based on the specified transform_type
         if transform_type == "base":
             self.transform = transforms.Compose(
                 [
@@ -448,6 +469,7 @@ class MoECLIPImageEncoder(nn.Module):
         else:
             raise ValueError(f"invalid {transform_type=}")
 
+        # Convert the versions parameter to a tuple if it's a single string
         if isinstance(versions, str):
             versions = (versions,)
 
@@ -461,8 +483,10 @@ class MoECLIPImageEncoder(nn.Module):
             clips[v].eval()
             clips[v].requires_grad_(False)
 
+        # Calculate the total hidden dimension across all CLIP models
         self.clips_hidden_dim = sum(clips[v].ln_final.weight.size(0) for v in clips)
 
+        # Define the projection layer based on the number of projection vectors
         if self.num_projection_vector == 0:
             self.projection = nn.Identity()
         else:
@@ -475,12 +499,16 @@ class MoECLIPImageEncoder(nn.Module):
         self._move_flag = False
 
     def move(self):
+        """
+        Moves the model to the specified device and converts the weights to the specified precision.
+        """
         if self._move_flag:
             return
 
         def convert_weights(model: nn.Module):
-            """Convert applicable model parameters to fp16"""
-
+            """
+            Converts applicable model parameters to the specified precision.
+            """
             def _convert_weights_to_fp16(l):
                 if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Linear)):
                     l.weight.data = l.weight.data.type(self.dtype)
@@ -512,6 +540,9 @@ class MoECLIPImageEncoder(nn.Module):
         self._move_flag = True
 
     def unconditional_embedding(self, batch_size=None):
+        """
+        Generates an unconditional embedding tensor of zeros with the specified batch size and shape.
+        """
         zero = torch.zeros(
             batch_size,
             self.clips_hidden_dim,
@@ -523,11 +554,25 @@ class MoECLIPImageEncoder(nn.Module):
         return zero
 
     def convert_embedding(self, z):
+        """
+        Converts the input embedding tensor to the desired shape and precision.
+        """
         if self.num_projection_vector > 0:
             z = self.projection(z.type(self.projection.weight.dtype)).view(len(z), self.num_projection_vector, -1)
         return z
 
     def forward(self, image, value_range=(-1, 1), zero_embedding_radio=0):
+        """
+        Forward pass through the MoECLIPImageEncoder model.
+
+        Args:
+            image (torch.Tensor): The input image tensor.
+            value_range (tuple, optional): The value range to normalize the image. Defaults to (-1, 1).
+            zero_embedding_radio (float, optional): The probability of zeroing out embeddings during training. Defaults to 0.
+
+        Returns:
+            torch.Tensor: The encoded image embedding tensor.
+        """
         if value_range is not None:
             low, high = value_range
             image = (image - low) / (high - low)
@@ -558,5 +603,14 @@ class MoECLIPImageEncoder(nn.Module):
         return z
 
     def encode(self, image):
+        """
+        Encodes the input image using the MoECLIPImageEncoder model.
+
+        Args:
+            image (torch.Tensor): The input image tensor.
+
+        Returns:
+            torch.Tensor: The encoded image embedding tensor.
+        """
         self.move()
         return self(image, zero_embedding_radio=self.zero_embedding_radio)
