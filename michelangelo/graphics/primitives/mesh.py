@@ -79,11 +79,17 @@ def savemeshtes2(pointnp_px3, tcoords_px2, facenp_fx3, facetex_fx3, tex_map, fna
     # Open the material file in write mode
     fid = open(matname, "w")
     # Write the material properties to the file
+    # Define a new material named "material_0"
     fid.write("newmtl material_0\n")
+    # Set the diffuse color to white (1 1 1)
     fid.write("Kd 1 1 1\n")
+    # Set the ambient color to black (0 0 0), effectively disabling ambient lighting
     fid.write("Ka 0 0 0\n")
+    # Set the specular color to a light gray (0.4 0.4 0.4), contributing to the material's shininess
     fid.write("Ks 0.4 0.4 0.4\n")
+    # Set the specular exponent to 10, controlling the sharpness of the specular highlight
     fid.write("Ns 10\n")
+    # Set the illumination model to 2, indicating a non-physical lighting model with highlights
     fid.write("illum 2\n")
     # Specify the diffuse texture map
     fid.write("map_Kd %s.png\n" % na)

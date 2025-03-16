@@ -20,19 +20,25 @@ class AbstractEncoder(nn.Module):
     def encode(self, *args, **kwargs):
         raise NotImplementedError
 
-
+# This is a class embedder module that is used to embed class information.
 class ClassEmbedder(nn.Module):
+    # Initialize the ClassEmbedder module with the specified embedding dimension, number of classes, and key.
     def __init__(self, embed_dim, n_classes=1000, key="class"):
         super().__init__()
         self.key = key
+        # Create an embedding layer with the specified number of classes and embedding dimension.
         self.embedding = nn.Embedding(n_classes, embed_dim)
 
+    # Define the forward pass of the ClassEmbedder module.
     def forward(self, batch, key=None):
+        # If the key is not provided, use the default key.
         if key is None:
             key = self.key
-        # this is for use in crossattn
+        # Extract the class information from the batch.
         c = batch[key][:, None]
+        # Embed the class information using the embedding layer.
         c = self.embedding(c)
+        # Return the embedded class information.
         return c
 
 
@@ -110,7 +116,10 @@ class FrozenCLIPTextEmbedder(AbstractEncoder):
         return self(text)
 
 class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
-    """Uses the CLIP transformer encoder for text (from Hugging Face)"""
+    """
+    This class utilizes the CLIP transformer encoder for text processing, specifically designed for text embedding tasks.
+    It leverages the Hugging Face library for model loading and tokenization.
+    """
 
     def __init__(
         self,
@@ -120,6 +129,16 @@ class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
         max_length=77,
         zero_embedding_radio: float = 0.1,
     ):
+        """
+        Initializes the FrozenAlignedCLIPTextEmbedder with specified parameters.
+
+        Args:
+            version (str, optional): The version of the CLIP model to use. Defaults to "openai/clip-vit-large-patch14".
+            tokenizer_version (str, optional): The version of the tokenizer to use. Defaults to None, which uses the same version as the model.
+            device (str, optional): The device to move the model to. Defaults to "cuda".
+            max_length (int, optional): The maximum length of the input text. Defaults to 77.
+            zero_embedding_radio (float, optional): The probability of setting an embedding to zero during training. Defaults to 0.1.
+        """
         super().__init__()
         self.tokenizer = CLIPTokenizer.from_pretrained(tokenizer_version or version)
 
@@ -132,6 +151,7 @@ class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
 
         transformer = CLIPModel.from_pretrained(version).text_model
 
+        # Freeze the model parameters to prevent training
         for param in transformer.parameters():
             param.requires_grad = False
         self.clip_dict[self.clip_name] = transformer
@@ -140,9 +160,15 @@ class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
 
     @property
     def clip(self):
+        """
+        Returns the CLIP model instance.
+        """
         return self.clip_dict[self.clip_name]
 
     def move(self):
+        """
+        Moves the model to the specified device and sets the move flag.
+        """
         if self._move_flag:
             return
 
@@ -150,11 +176,29 @@ class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
         self._move_flag = True
 
     def unconditional_embedding(self, batch_size):
+        """
+        Generates an unconditional embedding tensor of zeros with the specified batch size.
+
+        Args:
+            batch_size (int): The size of the batch.
+
+        Returns:
+            torch.Tensor: The unconditional embedding tensor.
+        """
         empty_text = [""] * batch_size
         empty_z = self.forward(empty_text)
         return empty_z
 
     def forward(self, text):
+        """
+        Forward pass through the model for text embedding.
+
+        Args:
+            text (list[str]): A list of text strings to be embedded.
+
+        Returns:
+            torch.Tensor: The embedded text tensor.
+        """
         self.move()
 
         batch_encoding = self.tokenizer(
@@ -174,6 +218,15 @@ class FrozenAlignedCLIPTextEmbedder(AbstractEncoder):
         return z
 
     def encode(self, text):
+        """
+        Encodes the input text with a chance of setting some embeddings to zero.
+
+        Args:
+            text (list[str]): A list of text strings to be encoded.
+
+        Returns:
+            torch.Tensor: The encoded text tensor.
+        """
         batch_size = len(text)
         batch_mask = torch.rand((batch_size,))
         for i in range(batch_size):
@@ -188,7 +241,7 @@ class FrozenCLIPImageEmbedder(AbstractEncoder):
 
     def __init__(
             self,
-            version="openai/clip-vit-large-patch14",
+            version="./pretrained/clip-vit-large-patch14",
             device="cuda",
             zero_embedding_radio=0.1,
             normalize_embedding=True,
@@ -298,48 +351,78 @@ class FrozenCLIPImageEmbedder(AbstractEncoder):
 
 
 class FrozenCLIPImageGridEmbedder(AbstractEncoder):
-
+    """
+    This class defines a FrozenCLIPImageGridEmbedder model, which is a PyTorch module that encapsulates the functionality of encoding images 
+    using a frozen CLIP model with a specific version and projection vectors. It supports various precision modes, normalization, 
+    and clipping options.
+    """
     def __init__(
             self,
-            version="openai/clip-vit-large-patch14",
+            version="./pretrained/clip-vit-large-patch14", # openai/clip-vit-large-patch14
             device="cuda",
             zero_embedding_radio=0.1,
     ):
+        """
+        Initializes the FrozenCLIPImageGridEmbedder model with the specified parameters.
+
+        Args:
+            version (str, optional): The version of the CLIP model to use. Defaults to "openai/clip-vit-large-patch14".
+            device (str, optional): The device to use for computations. Defaults to "cuda".
+            zero_embedding_radio (float, optional): The probability of zeroing out embeddings during training. Defaults to 0.1.
+        """
         super().__init__()
 
         self.device = device
 
+        # Initialize an ordered dictionary to store the CLIP model
         self.clip_dict = OrderedDict()
+        # Extract the model name from the version string
         self.clip_name = os.path.split(version)[-1]
 
+        # Load the CLIP model with the specified version and set it to evaluation mode
         clip_model: CLIPModel = CLIPModel.from_pretrained(version)
         clip_model.text_model = None
         clip_model.text_projection = None
         clip_model = clip_model.eval()
+        # Freeze all model parameters
         for param in self.parameters():
             param.requires_grad = False
+        # Store the model in the dictionary
         self.clip_dict[self.clip_name] = clip_model
 
+        # Define the image transformation pipeline
         self.transform = transforms.Compose(
             [
+                # Resize the image to 224x224 with bilinear interpolation and antialiasing
                 transforms.Resize(224, transforms.InterpolationMode.BILINEAR, antialias=True),
-                transforms.CenterCrop(224),  # crop a (224, 224) square
+                # Center crop the image to a 224x224 square
+                transforms.CenterCrop(224), 
+                # Normalize the image with mean and standard deviation
                 transforms.Normalize(
                     mean=[0.48145466, 0.4578275, 0.40821073],
                     std=[0.26862954, 0.26130258, 0.27577711],
                 ),
             ]
         )
+        # Store the zero embedding radio
         self.zero_embedding_radio = zero_embedding_radio
+        # Get the embedding dimension from the CLIP model
         self.embedding_dim = clip_model.vision_embed_dim
 
+        # Flag to track if the model has been moved to the device
         self._move_flag = False
 
     @property
     def clip(self):
+        """
+        Returns the CLIP model instance.
+        """
         return self.clip_dict[self.clip_name]
 
     def move(self):
+        """
+        Moves the CLIP model to the specified device if it has not been moved already.
+        """
         if self._move_flag:
             return
 
@@ -347,6 +430,15 @@ class FrozenCLIPImageGridEmbedder(AbstractEncoder):
         self._move_flag = True
 
     def unconditional_embedding(self, batch_size):
+        """
+        Generates an unconditional embedding tensor of zeros with the specified batch size.
+
+        Args:
+            batch_size (int): The batch size of the embedding tensor.
+
+        Returns:
+            torch.Tensor: The unconditional embedding tensor.
+        """
         zero = torch.zeros(
             batch_size,
             self.clip.vision_model.embeddings.num_positions,
@@ -357,23 +449,48 @@ class FrozenCLIPImageGridEmbedder(AbstractEncoder):
         return zero
 
     def forward(self, image, value_range=(-1, 1), zero_embedding_radio=0):
+        """
+        Forward pass through the FrozenCLIPImageGridEmbedder model.
+
+        Args:
+            image (torch.Tensor): The input image tensor.
+            value_range (tuple, optional): The value range to normalize the image. Defaults to (-1, 1).
+            zero_embedding_radio (float, optional): The probability of zeroing out embeddings during training. Defaults to 0.
+
+        Returns:
+            torch.Tensor: The encoded image embedding tensor.
+        """
         self.move()
 
         if value_range is not None:
             low, high = value_range
+            # Normalize the input image based on the provided value range
             image = (image - low) / (high - low)
 
+        # Move the image to the device and convert to the appropriate dtype
         image = image.to(self.device, dtype=self.clip.visual_projection.weight.dtype)
 
+        # Encode the image using the CLIP model
         z = self.clip.vision_model(self.transform(image)).last_hidden_state
 
         if zero_embedding_radio > 0:
+            # Generate a mask for randomly zeroing out embeddings
             mask = torch.rand((len(image), 1, 1), device=z.device, dtype=z.dtype) >= zero_embedding_radio
+            # Apply the mask to the embeddings
             z = z * mask.to(z)
 
         return z
 
     def encode(self, image):
+        """
+        Encodes the input image using the FrozenCLIPImageGridEmbedder model.
+
+        Args:
+            image (torch.Tensor): The input image tensor.
+
+        Returns:
+            torch.Tensor: The encoded image embedding tensor.
+        """
         return self(image, zero_embedding_radio=self.zero_embedding_radio)
 
 class MoECLIPImageEncoder(nn.Module):

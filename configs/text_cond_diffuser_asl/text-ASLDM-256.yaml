@@ -23,7 +23,7 @@ model:
         aligned_module_cfg:
           target: michelangelo.models.tsal.clip_asl_module.CLIPAlignedShapeAsLatentModule
           params:
-            clip_model_version: "./checkpoints/clip/clip-vit-large-patch14"
+            clip_model_version: "./pretrained/clip-vit-large-patch14"
 
         loss_cfg:
           target: torch.nn.Identity
@@ -31,7 +31,7 @@ model:
     cond_stage_config:
       target: michelangelo.models.conditional_encoders.encoder_factory.FrozenAlignedCLIPTextEmbedder
       params:
-        version: "./checkpoints/clip/clip-vit-large-patch14"
+        version: "./pretrained/clip-vit-large-patch14"
         zero_embedding_radio: 0.1
         max_length: 77
 

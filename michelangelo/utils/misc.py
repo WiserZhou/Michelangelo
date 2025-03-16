@@ -134,25 +134,31 @@ def get_world_size():
 
 def all_gather_batch(tensors):
     """
-    Performs all_gather operation on the provided tensors.
+    This function performs an all_gather operation on the provided tensors across all processes in the distributed environment.
+    It is a collective operation that gathers tensors from all processes and makes them available to every process.
     """
-    # Queue the gathered tensors
+    # Retrieve the total number of processes in the distributed environment
     world_size = get_world_size()
-    # There is no need for reduction in the single-proc case
+    # If there is only one process, there is no need to perform all_gather as it would be a no-op
     if world_size == 1:
-        return tensors
-    tensor_list = []
-    output_tensor = []
+        return tensors  # Return the tensors as is in the single-process case
+    tensor_list = []  # Initialize an empty list to store the gathered tensors
+    output_tensor = []  # Initialize an empty list to store the final output tensors
+    # Iterate over each tensor in the input list
     for tensor in tensors:
+        # Initialize a list of tensors, each of which is a replica of the current tensor, with the same shape and size
         tensor_all = [torch.ones_like(tensor) for _ in range(world_size)]
+        # Perform the all_gather operation on the current tensor, gathering replicas from all processes
         dist.all_gather(
             tensor_all,
             tensor,
-            async_op=False  # performance opt
+            async_op=False  # This option is set to False for performance optimization
         )
-
+        # Append the list of gathered tensors to the tensor_list
         tensor_list.append(tensor_all)
-
+    # Iterate over the list of gathered tensors
     for tensor_all in tensor_list:
+        # Concatenate the gathered tensors along the first dimension (dim=0) and append the result to the output_tensor list
         output_tensor.append(torch.cat(tensor_all, dim=0))
+    # Return the list of output tensors, each of which is the concatenation of the gathered tensors
     return output_tensor
