@@ -421,52 +421,61 @@ class MoECLIPImageEncoder(nn.Module):
         self.clip_max = clip_max
 
         # Define the image transformation pipeline based on the specified transform_type
+        # This section dynamically configures the image transformation pipeline based on the 'transform_type' parameter.
+        # It supports two types of transformations: 'base' and 'crop_blur_resize'.
         if transform_type == "base":
+            # For 'base' transformation, the pipeline consists of resizing, center cropping, and normalization.
             self.transform = transforms.Compose(
                 [
-                    transforms.Resize(224, transforms.InterpolationMode.BICUBIC, antialias=True),
-                    transforms.CenterCrop(224),  # crop a (224, 224) square
+                    transforms.Resize(224, transforms.InterpolationMode.BICUBIC, antialias=True),  # Resize the image to 224x224 with bicubic 
+                    # interpolation and antialiasing.
+                    transforms.CenterCrop(224),  # Crop a 224x224 square from the center of the image.
                     transforms.Normalize(
-                        mean=[0.48145466, 0.4578275, 0.40821073],
-                        std=[0.26862954, 0.26130258, 0.27577711],
+                        mean=[0.48145466, 0.4578275, 0.40821073],  # Normalize the image with specified mean values.
+                        std=[0.26862954, 0.26130258, 0.27577711],  # Normalize the image with specified standard deviation values.
                     ),
                 ]
             )
         elif transform_type == "crop_blur_resize":
+            # For 'crop_blur_resize' transformation, the pipeline includes resizing, center cropping, random resized cropping, Gaussian blur, 
+            # random resizing, and normalization.
             self.transform = transforms.Compose(
                 [
-                    transforms.Resize(224, transforms.InterpolationMode.BICUBIC, antialias=True),
-                    transforms.CenterCrop(224),  # crop a (224, 224) square
+                    transforms.Resize(224, transforms.InterpolationMode.BICUBIC, antialias=True),  # Resize the image to 224x224 with bicubic 
+                    # interpolation and antialiasing.
+                    transforms.CenterCrop(224),  # Crop a 224x224 square from the center of the image.
                     transforms.RandomApply(
                         transforms=[
                             transforms.RandomResizedCrop(
-                                size=224,
-                                scale=(0.8, 1.0),
-                                ratio=(0.99, 1.01),
-                                interpolation=transforms.InterpolationMode.BICUBIC,
+                                size=224,  # Crop a random size between 0.8 and 1.0 of the original size.
+                                scale=(0.8, 1.0),  # Scale factor range.
+                                ratio=(0.99, 1.01),  # Aspect ratio range.
+                                interpolation=transforms.InterpolationMode.BICUBIC,  # Interpolation mode.
                             ),
                         ],
-                        p=argument_p,
+                        p=argument_p,  # Probability of applying this transformation.
                     ),
                     transforms.RandomApply(
                         transforms=[
-                            transforms.GaussianBlur(kernel_size=9, sigma=(0.1, 5)),
+                            transforms.GaussianBlur(kernel_size=9, sigma=(0.1, 5)),  # Apply Gaussian blur with a kernel size of 9 and sigma 
+                            # between 0.1 and 5.
                         ],
-                        p=argument_p,
+                        p=argument_p,  # Probability of applying this transformation.
                     ),
                     transforms.RandomApply(
                         transforms=[
-                            RandomResize(size=224, resize_radio=(0.2, 1)),
+                            RandomResize(size=224, resize_radio=(0.2, 1)),  # Resize the image to a random size between 0.2 and 1 of the original size.
                         ],
-                        p=argument_p,
+                        p=argument_p,  # Probability of applying this transformation.
                     ),
                     transforms.Normalize(
-                        mean=[0.48145466, 0.4578275, 0.40821073],
-                        std=[0.26862954, 0.26130258, 0.27577711],
+                        mean=[0.48145466, 0.4578275, 0.40821073],  # Normalize the image with specified mean values.
+                        std=[0.26862954, 0.26130258, 0.27577711],  # Normalize the image with specified standard deviation values.
                     ),
                 ]
             )
         else:
+            # If the specified 'transform_type' is neither 'base' nor 'crop_blur_resize', raise a ValueError.
             raise ValueError(f"invalid {transform_type=}")
 
         # Convert the versions parameter to a tuple if it's a single string
@@ -478,9 +487,13 @@ class MoECLIPImageEncoder(nn.Module):
 
         for v in versions:
             # 因为clips不是子module，直接指定device="cuda"会错误地导致clip模型权重都被放到cuda:0上。
+            # Load the CLIP model with the specified version, device, and settings.
             clips[v], _ = clip.load(name=v, device="cpu", jit=False, download_root=None)
+            # Remove the transformer attribute from the loaded CLIP model to avoid unnecessary computations.
             delattr(clips[v], "transformer")
+            # Set the CLIP model to evaluation mode to disable gradient computation.
             clips[v].eval()
+            # Disable gradient computation for the CLIP model to prevent backpropagation.
             clips[v].requires_grad_(False)
 
         # Calculate the total hidden dimension across all CLIP models
@@ -573,31 +586,39 @@ class MoECLIPImageEncoder(nn.Module):
         Returns:
             torch.Tensor: The encoded image embedding tensor.
         """
+        # Normalize the input image based on the provided value range
         if value_range is not None:
             low, high = value_range
             image = (image - low) / (high - low)
 
+        # Apply the predefined transformation to the input image
         image = self.transform(image)
 
+        # Encode the image using each clip model without gradients
         with torch.no_grad():
             embs = []
             for v in self.clips:
                 x = self.clips[v].encode_image(image)
+                # Normalize the encoded embedding if required
                 if self.normalize:
                     x = x / x.norm(p=2, dim=-1, keepdim=True) * (x.size(-1) ** 0.5)
-                    # clip_max only works with normalization
+                    # Clip the normalized embedding if clip_max is set
                     if self.clip_max > 0:
                         x = x.clamp(-self.clip_max, self.clip_max)
                 embs.append(x)
 
+            # Concatenate all encoded embeddings
             z = torch.cat(embs, dim=-1)
+            # Normalize the final concatenated embedding if required
             if self.normalize:
                 z /= z.size(-1) ** 0.5
 
+        # Randomly zero out embeddings during training if zero_embedding_radio is set
         if zero_embedding_radio > 0:
             mask = torch.rand((len(image), 1, 1), device=z.device, dtype=z.dtype) >= zero_embedding_radio
-            z = z + mask.to(z)
+            z = z * mask.to(z)
 
+        # Project the final embedding to the desired dimension if required
         if self.num_projection_vector > 0:
             z = self.projection(z).view(len(image), self.num_projection_vector, -1)
         return z
