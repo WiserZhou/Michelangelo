@@ -35,22 +35,22 @@ def disabled_train(self, mode=True):
 
 class ASLDiffuser(pl.LightningModule):
     first_stage_model: Optional[AlignedShapeAsLatentPLModule]
-    # cond_stage_model: Optional[Union[nn.Module, pl.LightningModule]]
+    cond_stage_model: Optional[Union[nn.Module, pl.LightningModule]]
     model: nn.Module
 
     def __init__(self, *,
-                 first_stage_config,
-                 denoiser_cfg,
-                 scheduler_cfg,
-                 optimizer_cfg,
-                 loss_cfg,
-                 first_stage_key: str = "surface",
-                 cond_stage_key: str = "image",
-                 cond_stage_trainable: bool = True,
-                 scale_by_std: bool = False,
-                 z_scale_factor: float = 1.0,
-                 ckpt_path: Optional[str] = None,
-                 ignore_keys: Union[Tuple[str], List[str]] = ()):
+                first_stage_config,
+                denoiser_cfg,
+                scheduler_cfg,
+                optimizer_cfg,
+                loss_cfg,
+                first_stage_key: str = "surface",
+                cond_stage_key: str = "image",
+                cond_stage_trainable: bool = True,
+                scale_by_std: bool = False,
+                z_scale_factor: float = 1.0,
+                ckpt_path: Optional[str] = None,
+                ignore_keys: Union[Tuple[str], List[str]] = ()):
 
         super().__init__()
 
