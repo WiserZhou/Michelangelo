@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.optim import lr_scheduler
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
+import numpy
 
 from diffusers.schedulers import (
     DDPMScheduler,
@@ -34,18 +35,9 @@ class ClipASLDiffuser(pl.LightningModule):
     It combines a first stage model for encoding surfaces, a conditional stage model for encoding conditions,
     and a diffusion model for generating samples.
     """
-    first_stage_model: Optional[AlignedShapeAsLatentPLModule] = None
-    """
-    The first stage model is responsible for encoding surfaces into latent space.
-    """
-    cond_stage_model: Optional[Union[nn.Module, pl.LightningModule]] = None
-    """
-    The conditional stage model is responsible for encoding conditions such as text or images.
-    """
+    first_stage_model: Optional[AlignedShapeAsLatentPLModule]
+    cond_stage_model: Optional[Union[nn.Module, pl.LightningModule]]
     model: nn.Module
-    """
-    The diffusion model is the core model for generating samples based on the encoded surfaces and conditions.
-    """
 
     def __init__(self, *,
                 first_stage_config,
@@ -115,35 +107,27 @@ class ClipASLDiffuser(pl.LightningModule):
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
     def instantiate_non_trainable_model(self, config):
-        """
-        Instantiates a non-trainable model from a given configuration.
-
-        Args:
-            config: The configuration for the model.
-
-        Returns:
-            A non-trainable model instance.
-        """
         model = instantiate_from_config(config)
+        if model is None:
+            print("Error: model instantiation failed")
+            return None  # Early return if model is None
+            
         model = model.eval()
         model.train = disabled_train
         for param in model.parameters():
             param.requires_grad = False
 
-        return model
+        return model  # Ensure model is returned
 
     def instantiate_first_stage(self, first_stage_config):
-        """
-        Instantiates the first stage model and sets it to only use the shape model.
 
-        Args:
-            first_stage_config: The configuration for the first stage model.
-        """
         self.first_stage_model = self.instantiate_non_trainable_model(first_stage_config)
-        # Michelangelo/michelangelo/models/tsal/clip_asl_module.py
-        # Sets the CLIP model to None, effectively disabling it.
-        self.first_stage_model.set_shape_model_only()
 
+        if self.first_stage_model is not None:
+            self.first_stage_model.set_shape_model_only()
+        else:
+            print("WARNING: first_stage_model is None, skipping set_shape_model_only()")
+            
     def instantiate_cond_stage(self, cond_stage_config):
         """
         Instantiates the conditional stage model.
@@ -161,7 +145,8 @@ class ClipASLDiffuser(pl.LightningModule):
             path: The path to the checkpoint file.
             ignore_keys: Keys to ignore when loading the checkpoint.
         """
-        state_dict = torch.load(path, map_location="cpu")["state_dict"]
+        with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+            state_dict = torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
 
         keys = list(state_dict.keys())
         for k in keys:

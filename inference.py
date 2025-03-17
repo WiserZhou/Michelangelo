@@ -194,7 +194,8 @@ def image2mesh(args, model, guidance_scale=7.5, box_v=1.1, octree_depth=7):
     This function generates a 3D mesh from an input image using the provided model.
     
     Args:
-        args (argparse.Namespace): An argparse.Namespace object containing the path to the input image and the output directory.
+        args (argparse.Namespace): An argparse.Namespace object containing the path to the input image and the 
+        output directory.
         model: The model instance to use for generating the mesh.
         guidance_scale (float, optional): The scale factor for guidance in the model. Defaults to 7.5.
         box_v (float, optional): The scale factor for the bounding box of the mesh. Defaults to 1.1.
